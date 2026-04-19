@@ -4,7 +4,7 @@ import type {Adapter} from 'dynamodb-toolkit';
 import type {RestPolicy} from 'dynamodb-toolkit/rest-core';
 
 /** Options for {@link createKoaAdapter}. */
-export interface KoaAdapterOptions {
+export interface KoaAdapterOptions<TItem extends Record<string, unknown> = Record<string, unknown>> {
   /** Partial overrides for the REST policy (merged with the default). */
   policy?: Partial<RestPolicy>;
   /**
@@ -23,7 +23,7 @@ export interface KoaAdapterOptions {
    *
    * Return a full key object. Default: `(raw, adp) => ({[adp.keyFields[0]]: raw})`.
    */
-  keyFromPath?: (rawKey: string, adapter: Adapter<Record<string, unknown>>) => Record<string, unknown>;
+  keyFromPath?: (rawKey: string, adapter: Adapter<TItem>) => Record<string, unknown>;
   /**
    * Build the `example` object passed to `Adapter.prepareListInput` from the
    * current request. Runs on `GET /`, `DELETE /`, and the `-clone` / `-move`
@@ -72,4 +72,7 @@ export interface KoaAdapterOptions {
  * @param options Policy, sortable indices, key / example extractors, body cap.
  * @returns A Koa `Middleware` suitable for `app.use` or `mount('/planets', ...)`.
  */
-export function createKoaAdapter(adapter: Adapter<Record<string, unknown>>, options?: KoaAdapterOptions): Middleware;
+export function createKoaAdapter<TItem extends Record<string, unknown> = Record<string, unknown>>(
+  adapter: Adapter<TItem>,
+  options?: KoaAdapterOptions<TItem>
+): Middleware;
