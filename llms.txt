@@ -1,0 +1,29 @@
+# dynamodb-toolkit-koa
+
+> Koa adapter for `dynamodb-toolkit` v3. Mounts the toolkit's standard REST route pack as Koa middleware.
+
+**Status:** scaffolding. API below is provisional.
+
+## Install
+
+```sh
+npm install dynamodb-toolkit-koa dynamodb-toolkit koa
+```
+
+## Quick start
+
+```js
+import Koa from 'koa';
+import {Adapter} from 'dynamodb-toolkit';
+import {createKoaAdapter} from 'dynamodb-toolkit-koa';
+
+const adapter = new Adapter({client, table: 'planets', keyFields: ['name']});
+const app = new Koa();
+app.use(createKoaAdapter(adapter));
+app.listen(3000);
+```
+
+## Links
+
+- Parent toolkit: https://github.com/uhop/dynamodb-toolkit
+- Route pack reference: https://github.com/uhop/dynamodb-toolkit/wiki/HTTP-handler
