@@ -57,7 +57,7 @@ export const createKoaAdapter = (adapter, options = {}) => {
   const buildListOptions = query => {
     const fields = parseFields(query.fields);
     const filter = parseFilter(query.filter);
-    const paging = parsePaging(query, {defaultLimit: policy.defaultLimit, maxLimit: policy.maxLimit});
+    const paging = parsePaging(query, {defaultLimit: policy.defaultLimit, maxLimit: policy.maxLimit, maxOffset: policy.maxOffset});
     const consistent = parseFlag(query.consistent);
     /** @type {import('dynamodb-toolkit').ListOptions} */
     const out = {...paging, consistent, needTotal: policy.needTotal};
