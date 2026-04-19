@@ -17,24 +17,38 @@ export interface KoaAdapterOptions<TItem extends Record<string, unknown> = Recor
    * route (`GET /:key`, `PUT /:key`, `PATCH /:key`, `DELETE /:key`, and the
    * single-item `-clone` / `-move` endpoints).
    *
-   * - `rawKey` — the URL-decoded `:key` path segment, string.
-   * - `adapter` — the target Adapter; use `adapter.keyFields` to decide what
-   *   to populate for composite keys.
+   * Default: `(raw, adp) => ({[adp.keyFields[0]]: raw})` — the raw string
+   * becomes the partition key. Override for composite keys (e.g.
+   * `${partition}:${sort}` → `{partition, sort}`), numeric coercion, or
+   * URL-format validation.
    *
-   * Return a full key object. Default: `(raw, adp) => ({[adp.keyFields[0]]: raw})`.
+   * @param rawKey The URL-decoded `:key` path segment, always a string.
+   * @param adapter The target Adapter. Inspect `adapter.keyFields` to decide
+   *   which fields to populate when writing a generic callback.
+   * @returns The full key object. Every entry in `adapter.keyFields` must be
+   *   a property of the returned object; the return value flows directly
+   *   into `adapter.getByKey` / `put` / `patch` / `delete`.
    */
   keyFromPath?: (rawKey: string, adapter: Adapter<TItem>) => Record<string, unknown>;
   /**
    * Build the `example` object passed to `Adapter.prepareListInput` from the
-   * current request. Runs on `GET /`, `DELETE /`, and the `-clone` / `-move`
-   * bulk endpoints.
+   * current request. Runs on `GET /`, `DELETE /`, and the `PUT /-clone` /
+   * `PUT /-move` bulk endpoints — the collection-level routes that invoke
+   * the Adapter's list-params machinery.
    *
-   * - `query` — parsed query-string object, `Record<string, string>`.
-   * - `body` — parsed request body, `unknown` (null on GET/DELETE).
-   * - `ctx`   — the full Koa `Context`; useful for pulling auth info from
-   *   upstream middleware (e.g. `ctx.state.user.tenantId`).
+   * Default: `() => ({})` — no example; `prepareListInput` derives
+   * everything from the `index` argument alone.
    *
-   * Default: `() => ({})`.
+   * @param query Parsed URL query-string. Array values (repeated keys) have
+   *   already been collapsed to the first element.
+   * @param body Parsed request body. `null` on `GET /` and `DELETE /`; the
+   *   overlay object on `PUT /-clone` / `PUT /-move`.
+   * @param ctx The full Koa `Context`. Use it to pull auth info from
+   *   upstream middleware (`ctx.state.user.tenantId`), request metadata
+   *   (`ctx.headers`, `ctx.ip`), etc.
+   * @returns The `example` argument threaded into `Adapter.prepareListInput`.
+   *   Typically shapes a `KeyConditionExpression` for a GSI (e.g.
+   *   `{tenantId: ctx.state.user.tenantId}` for per-tenant scoping).
    */
   exampleFromContext?: (query: Record<string, string>, body: unknown, ctx: Context) => Record<string, unknown>;
   /**
