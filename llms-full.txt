@@ -1,35 +1,80 @@
 # dynamodb-toolkit-koa — extended reference
 
-> Koa adapter for `dynamodb-toolkit` v3. Mounts the toolkit's standard REST route pack as Koa middleware.
-
-**Status:** scaffolding; implementation pending. Full reference will land with the first real release.
+> Koa adapter for `dynamodb-toolkit` v3. One middleware factory, zero runtime dependencies.
 
 ## Scope
 
 A thin translation layer between Koa's `(ctx, next)` handler shape and `dynamodb-toolkit`'s framework-agnostic pieces:
 
-- `matchRoute(method, path)` from `dynamodb-toolkit/handler` — pure route-shape recognizer.
-- Parsers from `dynamodb-toolkit/rest-core` — `parseFields`, `parseSort`, `parseFilter`, `parsePatch`, `parseNames`, `parsePaging`, `parseFlag`.
-- Builders + policy from `dynamodb-toolkit/rest-core` — `buildEnvelope`, `buildErrorBody`, `paginationLinks`, `defaultPolicy`, `mapErrorStatus`, `mergePolicy`.
-- A dynamodb-toolkit `Adapter` instance supplied by the caller.
+- `matchRoute(method, path, methodPrefix)` from `dynamodb-toolkit/handler` — pure route-shape recognizer.
+- Parsers from `dynamodb-toolkit/rest-core`: `parseFields`, `parseSort`, `parseFilter`, `parsePatch`, `parseNames`, `parsePaging`, `parseFlag`.
+- Builders + policy from `dynamodb-toolkit/rest-core`: `buildEnvelope`, `paginationLinks`, `defaultPolicy`, `mergePolicy`, `mapErrorStatus`, `buildErrorBody`.
+- A consumer-supplied `dynamodb-toolkit` `Adapter` instance.
 
-## Target API (provisional)
+## API
 
 ```ts
-export interface KoaAdapterOptions {
-  policy?: Partial<Policy>;
+import type {Context, Middleware} from 'koa';
+import type {Adapter} from 'dynamodb-toolkit';
+import type {RestPolicy} from 'dynamodb-toolkit/rest-core';
+
+interface KoaAdapterOptions {
+  policy?: Partial<RestPolicy>;
   sortableIndices?: Record<string, string>;
-  // (future) auth / hooks
+  keyFromPath?: (rawKey: string, adapter: Adapter<Record<string, unknown>>) => Record<string, unknown>;
+  exampleFromContext?: (query: Record<string, string>, body: unknown, ctx: Context) => Record<string, unknown>;
+  maxBodyBytes?: number;
 }
 
-export function createKoaAdapter(
-  adapter: Adapter<any>,
+function createKoaAdapter(
+  adapter: Adapter<Record<string, unknown>>,
   options?: KoaAdapterOptions
-): (ctx: Koa.Context, next: Koa.Next) => Promise<void>;
+): Middleware;
 ```
+
+## Routes
+
+Rooted at the mount point (use `koa-mount` to strip a prefix from `ctx.path`):
+
+| Method | Path                | Adapter method                   |
+| ------ | ------------------- | -------------------------------- |
+| GET    | `/`                 | `getAll` → envelope + links      |
+| POST   | `/`                 | `post`                           |
+| DELETE | `/`                 | `deleteAllByParams`              |
+| GET    | `/-by-names`        | `getByKeys`                      |
+| DELETE | `/-by-names`        | `deleteByKeys`                   |
+| PUT    | `/-load`            | `putAll`                         |
+| PUT    | `/-clone`           | `cloneAllByParams` (body=overlay)|
+| PUT    | `/-move`            | `moveAllByParams` (body=overlay) |
+| PUT    | `/-clone-by-names`  | `cloneByKeys` (body=overlay)     |
+| PUT    | `/-move-by-names`   | `moveByKeys` (body=overlay)      |
+| GET    | `/:key`             | `getByKey`                       |
+| PUT    | `/:key`             | `put` (URL key merged into body) |
+| PATCH  | `/:key`             | `patch` (meta keys → options)    |
+| DELETE | `/:key`             | `delete`                         |
+| PUT    | `/:key/-clone`      | `clone`                          |
+| PUT    | `/:key/-move`       | `move`                           |
+
+Wire contract — envelope keys, query syntax, meta-key prefixes, status codes — is identical to `dynamodb-toolkit/handler`. Override via `options.policy`.
+
+## Dispatch
+
+- Unknown route shape → `await next()`. Other middleware can respond; Koa's default 404 fires otherwise.
+- Known shape, unsupported method → `405 Method Not Allowed`.
+- Thrown errors map through `policy.errorBody(err)` + `mapErrorStatus` into a JSON body plus the matching status.
+
+## Body parsing
+
+- If `ctx.request.body` is set (e.g. `koa-bodyparser`, `@koa/bodyparser`), it is used as-is. The body-parser's own byte cap applies.
+- Otherwise the raw Node request stream is consumed with a `maxBodyBytes` cap (default **1 MiB**). Over-cap → `413 PayloadTooLarge`; malformed JSON → `400 BadJsonBody`.
+
+## Compatibility
+
+- **Koa 2** and **Koa 3** (peer `^2.15.0 || ^3.0.0`).
+- **Node 20+**, **Bun**, **Deno** — the test suite runs identically on all three.
 
 ## Reference
 
 - Parent toolkit: https://github.com/uhop/dynamodb-toolkit
-- Route pack contract: https://github.com/uhop/dynamodb-toolkit/wiki/HTTP-handler
-- v2 reference impl: `dynamodb-toolkit@2.3.0` source, `helpers/KoaAdapter.js`.
+- Route pack / wire contract: https://github.com/uhop/dynamodb-toolkit/wiki/HTTP-handler
+- AGENTS.md: conventions for contributors and AI agents.
