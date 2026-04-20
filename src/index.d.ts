@@ -3,6 +3,27 @@ import type {Context, Middleware} from 'koa';
 import type {Adapter} from 'dynamodb-toolkit';
 import type {RestPolicy} from 'dynamodb-toolkit/rest-core';
 
+/**
+ * Context passed to {@link KoaAdapterOptions.exampleFromContext}. Mirrors the
+ * shape used by the other framework adapters so cross-adapter callbacks can
+ * branch on `framework`.
+ */
+export interface KoaExampleContext<TItem extends Record<string, unknown> = Record<string, unknown>> {
+  /** Parsed URL query-string. Array values are collapsed to the first string element. */
+  query: Record<string, string>;
+  /**
+   * Parsed JSON body. Always the parsed body before the call — `null` only
+   * when the request had no body, not as a placeholder for unread bodies.
+   */
+  body: unknown;
+  /** The Adapter targeted by this middleware. */
+  adapter: Adapter<TItem>;
+  /** Discriminator for cross-adapter callbacks. */
+  framework: 'koa';
+  /** Koa `Context` — pull auth / headers / ip from upstream middleware. */
+  ctx: Context;
+}
+
 /** Options for {@link createKoaAdapter}. */
 export interface KoaAdapterOptions<TItem extends Record<string, unknown> = Record<string, unknown>> {
   /** Partial overrides for the REST policy (merged with the default). */
@@ -21,13 +42,6 @@ export interface KoaAdapterOptions<TItem extends Record<string, unknown> = Recor
    * becomes the partition key. Override for composite keys (e.g.
    * `${partition}:${sort}` → `{partition, sort}`), numeric coercion, or
    * URL-format validation.
-   *
-   * @param rawKey The URL-decoded `:key` path segment, always a string.
-   * @param adapter The target Adapter. Inspect `adapter.keyFields` to decide
-   *   which fields to populate when writing a generic callback.
-   * @returns The full key object. Every entry in `adapter.keyFields` must be
-   *   a property of the returned object; the return value flows directly
-   *   into `adapter.getByKey` / `put` / `patch` / `delete`.
    */
   keyFromPath?: (rawKey: string, adapter: Adapter<TItem>) => Record<string, unknown>;
   /**
@@ -39,24 +53,19 @@ export interface KoaAdapterOptions<TItem extends Record<string, unknown> = Recor
    * Default: `() => ({})` — no example; `prepareListInput` derives
    * everything from the `index` argument alone.
    *
-   * @param query Parsed URL query-string. Array values (repeated keys) have
-   *   already been collapsed to the first element.
-   * @param body Parsed request body. `null` on `GET /` and `DELETE /`; the
-   *   overlay object on `PUT /-clone` / `PUT /-move`.
-   * @param ctx The full Koa `Context`. Use it to pull auth info from
-   *   upstream middleware (`ctx.state.user.tenantId`), request metadata
-   *   (`ctx.headers`, `ctx.ip`), etc.
-   * @returns The `example` argument threaded into `Adapter.prepareListInput`.
-   *   Typically shapes a `KeyConditionExpression` for a GSI (e.g.
-   *   `{tenantId: ctx.state.user.tenantId}` for per-tenant scoping).
+   * Takes an options bag of `{query, body, adapter, framework: 'koa', ctx}`;
+   * the shape matches the other framework adapters so a tenant-scoping
+   * callback can be shared across koa, express, fetch, and lambda.
    */
-  exampleFromContext?: (query: Record<string, string>, body: unknown, ctx: Context) => Record<string, unknown>;
+  exampleFromContext?: (context: KoaExampleContext<TItem>) => Record<string, unknown>;
   /**
    * Cap for the raw request body in bytes. Enforced only when the consumer
    * has not pre-parsed the body (i.e. `ctx.request.body` is `undefined`). If
    * a Koa body-parser is in the chain, that parser's cap applies instead.
    *
    * Default: `1048576` (1 MiB), matching the bundled `node:http` handler.
+   * Measured in bytes via the extracted `readJsonBody` helper, not UTF-16
+   * code units as the 0.1.x variant did.
    */
   maxBodyBytes?: number;
 }
@@ -79,8 +88,14 @@ export interface KoaAdapterOptions<TItem extends Record<string, unknown> = Recor
  * Dispatch behavior:
  * - Unrecognized route shape → `await next()` — other middleware can respond.
  * - Known shape, unsupported method → `405 Method Not Allowed`.
+ * - `HEAD /:key` auto-promotes to `GET /:key` via the parent toolkit's
+ *   `matchRoute`; body is sent as normal (Koa strips it for HEAD).
  * - Thrown errors map through `policy.errorBody` + `mapErrorStatus` into a
  *   JSON body plus the matching status code.
+ *
+ * Write routes (POST /, PUT /:key, PATCH /:key) reject non-object bodies with
+ * `400 BadBody` at the rest-core boundary — the parent toolkit's
+ * `validateWriteBody` is wired in.
  *
  * @param adapter The dynamodb-toolkit Adapter that performs the DynamoDB work.
  * @param options Policy, sortable indices, key / example extractors, body cap.

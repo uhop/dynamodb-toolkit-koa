@@ -50,7 +50,7 @@ test('typed: KoaAdapterOptions typechecks the full options surface', t => {
     policy: {defaultLimit: 25, maxLimit: 200, needTotal: false},
     sortableIndices: {name: 'by-name-index'},
     keyFromPath: (raw, adp) => ({[adp.keyFields[0]]: raw}),
-    exampleFromContext: (query, _body, ctx) => ({tenant: query.tenant ?? 'default', via: ctx.method}),
+    exampleFromContext: ({query, ctx}) => ({tenant: query.tenant ?? 'default', via: ctx.method}),
     maxBodyBytes: 128 * 1024
   };
 

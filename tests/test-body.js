@@ -75,7 +75,7 @@ test('pre-parsed ctx.request.body is preferred over the stream', async t => {
   });
 });
 
-test('empty body on POST passes null through', async t => {
+test('empty body on POST rejected with 400 BadBody (validateWriteBody)', async t => {
   const adapter = makeMockAdapter();
   await withKoaServer(createKoaAdapter(adapter), async base => {
     const res = await fetch(`${base}/`, {
@@ -83,15 +83,33 @@ test('empty body on POST passes null through', async t => {
       headers: {'content-type': 'application/json'}
       // no body
     });
-    t.equal(res.status, 204);
-    t.equal(adapter.calls[0].item, null, 'empty body resolves to null');
+    t.equal(res.status, 400);
+    const body = await res.json();
+    t.equal(body.code, 'BadBody');
+    t.equal(adapter.calls.length, 0, 'adapter.post never fired on empty body');
+  });
+});
+
+test('array body on PUT /:key rejected with 400 BadBody', async t => {
+  const adapter = makeMockAdapter();
+  await withKoaServer(createKoaAdapter(adapter), async base => {
+    const res = await fetch(`${base}/earth`, {
+      method: 'PUT',
+      headers: {'content-type': 'application/json'},
+      body: JSON.stringify([1, 2, 3])
+    });
+    t.equal(res.status, 400);
+    const body = await res.json();
+    t.equal(body.code, 'BadBody');
+    t.equal(adapter.calls.length, 0);
   });
 });
 
 test('custom maxBodyBytes accepts a body at the limit', async t => {
   const adapter = makeMockAdapter();
-  // Exact-length string; the JSON parser sees `"aaa...aaa"` which is length+2.
-  const payload = JSON.stringify('a'.repeat(50));
+  // Object body (validateWriteBody rejects non-objects on POST); the JSON
+  // envelope is `{"blob":"aaa..."}` — length = 11 + N.
+  const payload = JSON.stringify({blob: 'a'.repeat(40)});
   const middleware = createKoaAdapter(adapter, {maxBodyBytes: payload.length});
   await withKoaServer(middleware, async base => {
     const res = await fetch(`${base}/`, {

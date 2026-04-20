@@ -8,7 +8,6 @@
 
 const {test} = require('tape-six');
 const {createKoaAdapter} = require('dynamodb-toolkit-koa');
-const {readJsonBody} = require('dynamodb-toolkit-koa/read-body.js');
 
 // Minimal adapter stand-in: createKoaAdapter only reads `keyFields` at dispatch
 // time, not at factory time. Enough for a require-shape smoke check.
@@ -16,10 +15,6 @@ const fakeAdapter = {keyFields: ['name']};
 
 test('cjs: main entry symbols resolve via require()', t => {
   t.equal(typeof createKoaAdapter, 'function', 'createKoaAdapter factory');
-});
-
-test('cjs: sub-exports resolve via require()', t => {
-  t.equal(typeof readJsonBody, 'function', 'readJsonBody helper');
 });
 
 test('cjs: factory returns a Koa-shaped middleware', t => {
@@ -33,7 +28,7 @@ test('cjs: factory accepts the full options surface', t => {
     policy: {statusCodes: {miss: 410}},
     sortableIndices: {name: 'by-name-index'},
     keyFromPath: (raw, adp) => ({[adp.keyFields[0]]: raw}),
-    exampleFromContext: (query, _body, _ctx) => ({tenant: query.tenant || 'default'}),
+    exampleFromContext: ({query}) => ({tenant: query.tenant || 'default'}),
     maxBodyBytes: 64 * 1024
   });
   t.equal(typeof mw, 'function');

@@ -129,19 +129,40 @@ test('custom keyFromPath receives the raw segment + adapter', async t => {
   });
 });
 
-test('exampleFromContext receives (query, body, ctx)', async t => {
+test('exampleFromContext receives {query, body, adapter, framework, ctx}', async t => {
   const adapter = makeMockAdapter();
   const seen = [];
-  const exampleFromContext = (query, body, ctx) => {
-    seen.push({query, body, method: ctx.method, path: ctx.path});
+  const exampleFromContext = ({query, body, adapter: adp, framework, ctx}) => {
+    seen.push({query, body, framework, method: ctx.method, path: ctx.path, adapterIsSame: adp === adapter});
     return {tenant: query.tenant || 'default'};
   };
   await withKoaServer(createKoaAdapter(adapter, {exampleFromContext}), async base => {
     await fetch(`${base}/?tenant=acme&limit=5`);
     t.equal(seen[0].query.tenant, 'acme');
+    t.equal(seen[0].framework, 'koa');
     t.equal(seen[0].method, 'GET');
     t.equal(seen[0].path, '/');
+    t.equal(seen[0].body, null, 'body is null on GET /');
+    t.ok(seen[0].adapterIsSame, 'adapter in options bag is the same Adapter instance');
     t.equal(adapter.calls[0].example.tenant, 'acme');
+  });
+});
+
+test('exampleFromContext on PUT /-clone receives the parsed overlay body', async t => {
+  const adapter = makeMockAdapter();
+  const seen = [];
+  const exampleFromContext = ({query, body}) => {
+    seen.push({query, body});
+    return {};
+  };
+  await withKoaServer(createKoaAdapter(adapter, {exampleFromContext}), async base => {
+    await fetch(`${base}/-clone?tenant=acme`, {
+      method: 'PUT',
+      headers: {'content-type': 'application/json'},
+      body: JSON.stringify({tag: 'cloned'})
+    });
+    t.deepEqual(seen[0].body, {tag: 'cloned'}, 'overlay body passes through');
+    t.equal(seen[0].query.tenant, 'acme');
   });
 });
 

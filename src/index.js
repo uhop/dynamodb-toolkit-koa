@@ -1,8 +1,8 @@
 // Koa adapter for dynamodb-toolkit v3.
 //
 // Translates Koa `(ctx, next)` into the toolkit's framework-agnostic pieces:
-//   - matchRoute (dynamodb-toolkit/handler) for route-shape recognition
-//   - parsers / builders / policy (dynamodb-toolkit/rest-core) for wire format
+//   - matchRoute + readJsonBody (dynamodb-toolkit/handler)
+//   - parsers / builders / policy (dynamodb-toolkit/rest-core)
 //   - a consumer-supplied Adapter for the DynamoDB layer
 //
 // Wire contract matches the bundled node:http handler (dynamodb-toolkit/handler):
@@ -11,40 +11,29 @@
 // response it can transform (koa-compress, koa-conditional-get, loggers, etc).
 
 import {
-  parseFields,
-  parseSort,
-  parseFilter,
   parsePatch,
   parseNames,
-  parsePaging,
+  parseFields,
   parseFlag,
   buildEnvelope,
   paginationLinks,
   mergePolicy,
-  mapErrorStatus
+  mapErrorStatus,
+  buildListOptions,
+  resolveSort,
+  coerceStringQuery,
+  validateWriteBody
 } from 'dynamodb-toolkit/rest-core';
-import {matchRoute} from 'dynamodb-toolkit/handler';
-
-import {readJsonBody} from './read-body.js';
-
-// Koa's ctx.query values are string | string[]; rest-core parsers expect string.
-// Collapse arrays to the first element — matches how new URLSearchParams treats
-// repeated keys when the caller reads via URLSearchParams.get (vs getAll).
-const coerceStringQuery = query => {
-  const out = {};
-  for (const k of Object.keys(query)) {
-    const v = query[k];
-    out[k] = Array.isArray(v) ? v[0] : v;
-  }
-  return out;
-};
+import {matchRoute, readJsonBody} from 'dynamodb-toolkit/handler';
 
 // Prefer a pre-parsed body (koa-bodyparser, @koa/bodyparser, koa-body…). Fall
 // back to streaming the raw Node request with our own cap. Pre-parsed bodies
 // bypass maxBodyBytes — the body parser is expected to enforce its own cap.
 const getBody = async (ctx, maxBodyBytes) => {
   if (ctx.request && ctx.request.body !== undefined) return ctx.request.body;
-  return readJsonBody(ctx.req, maxBodyBytes);
+  // `destroy: false` — Koa needs the socket alive so we can still write the
+  // 413 response. readJsonBody otherwise would destroy the underlying stream.
+  return readJsonBody(ctx.req, maxBodyBytes, {destroy: false});
 };
 
 export const createKoaAdapter = (adapter, options = {}) => {
@@ -54,23 +43,7 @@ export const createKoaAdapter = (adapter, options = {}) => {
   const exampleFromContext = options.exampleFromContext || (() => ({}));
   const maxBodyBytes = options.maxBodyBytes ?? 1024 * 1024;
 
-  const buildListOptions = query => {
-    const fields = parseFields(query.fields);
-    const filter = parseFilter(query.filter);
-    const paging = parsePaging(query, {defaultLimit: policy.defaultLimit, maxLimit: policy.maxLimit, maxOffset: policy.maxOffset});
-    const consistent = parseFlag(query.consistent);
-    /** @type {import('dynamodb-toolkit').ListOptions} */
-    const out = {...paging, consistent, needTotal: policy.needTotal};
-    if (fields) out.fields = fields;
-    if (filter) out.filter = filter.query;
-    return out;
-  };
-
-  const resolveSort = query => {
-    const sort = parseSort(query.sort);
-    if (!sort) return {index: undefined, descending: false};
-    return {index: sortableIndices[sort.field], descending: sort.direction === 'desc'};
-  };
+  const makeExampleCtx = (query, body, ctx) => ({query, body, adapter, framework: 'koa', ctx});
 
   const sendError = (ctx, err) => {
     const status = err?.status && err.status >= 400 && err.status < 600 ? err.status : mapErrorStatus(err, policy.statusCodes);
@@ -107,28 +80,33 @@ export const createKoaAdapter = (adapter, options = {}) => {
   // --- collection-level handlers ---
 
   const handleGetAll = async (ctx, query) => {
-    const opts = buildListOptions(query);
-    const {index, descending} = resolveSort(query);
+    /** @type {import('dynamodb-toolkit').ListOptions} */
+    const opts = buildListOptions(query, policy);
+    const {index, descending} = resolveSort(query, sortableIndices);
     if (descending) opts.descending = true;
-    const example = exampleFromContext(query, null, ctx);
+    const example = exampleFromContext(makeExampleCtx(query, null, ctx));
     const result = await adapter.getAll(opts, example, index);
 
+    // Handler-assembles-then-assigns: compute the envelope fully before
+    // writing ctx.status/ctx.body, so a throw here doesn't half-clobber
+    // a partial response.
     const links = paginationLinks(result.offset, result.limit, result.total, urlBuilderFor(ctx));
     const envelopeOpts = {keys: policy.envelope};
     if (links.prev || links.next) envelopeOpts.links = links;
-    sendJson(ctx, 200, buildEnvelope(result, envelopeOpts));
+    const envelope = buildEnvelope(result, envelopeOpts);
+    sendJson(ctx, 200, envelope);
   };
 
   const handlePost = async ctx => {
-    const body = await getBody(ctx, maxBodyBytes);
+    const body = validateWriteBody(await getBody(ctx, maxBodyBytes));
     await adapter.post(body);
     sendNoContent(ctx);
   };
 
   const handleDeleteAll = async (ctx, query) => {
-    const opts = buildListOptions(query);
-    const {index} = resolveSort(query);
-    const example = exampleFromContext(query, null, ctx);
+    const opts = buildListOptions(query, policy);
+    const {index} = resolveSort(query, sortableIndices);
+    const example = exampleFromContext(makeExampleCtx(query, null, ctx));
     const params = await adapter._buildListParams(opts, false, example, index);
     const r = await adapter.deleteAllByParams(params);
     sendJson(ctx, 200, {processed: r.processed});
@@ -191,9 +169,9 @@ export const createKoaAdapter = (adapter, options = {}) => {
   const handleCloneAll = async (ctx, query) => {
     const body = await getBody(ctx, maxBodyBytes);
     const overlay = body && typeof body === 'object' && !Array.isArray(body) ? body : {};
-    const opts = buildListOptions(query);
-    const {index} = resolveSort(query);
-    const example = exampleFromContext(query, body, ctx);
+    const opts = buildListOptions(query, policy);
+    const {index} = resolveSort(query, sortableIndices);
+    const example = exampleFromContext(makeExampleCtx(query, body, ctx));
     const params = await adapter._buildListParams(opts, false, example, index);
     const r = await adapter.cloneAllByParams(params, item => ({...item, ...overlay}));
     sendJson(ctx, 200, {processed: r.processed});
@@ -202,9 +180,9 @@ export const createKoaAdapter = (adapter, options = {}) => {
   const handleMoveAll = async (ctx, query) => {
     const body = await getBody(ctx, maxBodyBytes);
     const overlay = body && typeof body === 'object' && !Array.isArray(body) ? body : {};
-    const opts = buildListOptions(query);
-    const {index} = resolveSort(query);
-    const example = exampleFromContext(query, body, ctx);
+    const opts = buildListOptions(query, policy);
+    const {index} = resolveSort(query, sortableIndices);
+    const example = exampleFromContext(makeExampleCtx(query, body, ctx));
     const params = await adapter._buildListParams(opts, false, example, index);
     const r = await adapter.moveAllByParams(params, item => ({...item, ...overlay}));
     sendJson(ctx, 200, {processed: r.processed});
@@ -221,7 +199,7 @@ export const createKoaAdapter = (adapter, options = {}) => {
   };
 
   const handleItemPut = async (ctx, key, query) => {
-    const body = await getBody(ctx, maxBodyBytes);
+    const body = /** @type {Record<string, unknown>} */ (validateWriteBody(await getBody(ctx, maxBodyBytes)));
     const force = parseFlag(query.force);
     const merged = {...body, ...key};
     await adapter.put(merged, {force});
@@ -229,7 +207,7 @@ export const createKoaAdapter = (adapter, options = {}) => {
   };
 
   const handleItemPatch = async (ctx, key) => {
-    const body = await getBody(ctx, maxBodyBytes);
+    const body = /** @type {Record<string, unknown>} */ (validateWriteBody(await getBody(ctx, maxBodyBytes)));
     const {patch, options: patchOptions} = parsePatch(body, {metaPrefix: policy.metaPrefix});
     await adapter.patch(key, patch, patchOptions);
     sendNoContent(ctx);
@@ -260,6 +238,7 @@ export const createKoaAdapter = (adapter, options = {}) => {
 
   return async (ctx, next) => {
     const query = coerceStringQuery(ctx.query);
+    // matchRoute promotes HEAD → GET internally; route.method is effective.
     const route = matchRoute(ctx.method, ctx.path, policy.methodPrefix);
 
     // Unknown route shape — hand back to the Koa middleware chain so other
