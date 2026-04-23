@@ -39,7 +39,7 @@ const getBody = async (ctx, maxBodyBytes) => {
 export const createKoaAdapter = (adapter, options = {}) => {
   const policy = mergePolicy(options.policy);
   const sortableIndices = options.sortableIndices || {};
-  const keyFromPath = options.keyFromPath || ((rawKey, adp) => ({[adp.keyFields[0]]: rawKey}));
+  const keyFromPath = options.keyFromPath || ((rawKey, adp) => ({[adp.keyFields[0].name]: rawKey}));
   const exampleFromContext = options.exampleFromContext || (() => ({}));
   const maxBodyBytes = options.maxBodyBytes ?? 1024 * 1024;
 
@@ -85,7 +85,7 @@ export const createKoaAdapter = (adapter, options = {}) => {
     const {index, descending} = resolveSort(query, sortableIndices);
     if (descending) opts.descending = true;
     const example = exampleFromContext(makeExampleCtx(query, null, ctx));
-    const result = await adapter.getAll(opts, example, index);
+    const result = await adapter.getList(opts, example, index);
 
     // Handler-assembles-then-assigns: compute the envelope fully before
     // writing ctx.status/ctx.body, so a throw here doesn't half-clobber
@@ -108,7 +108,7 @@ export const createKoaAdapter = (adapter, options = {}) => {
     const {index} = resolveSort(query, sortableIndices);
     const example = exampleFromContext(makeExampleCtx(query, null, ctx));
     const params = await adapter._buildListParams(opts, false, example, index);
-    const r = await adapter.deleteAllByParams(params);
+    const r = await adapter.deleteListByParams(params);
     sendJson(ctx, 200, {processed: r.processed});
   };
 
@@ -162,7 +162,7 @@ export const createKoaAdapter = (adapter, options = {}) => {
     if (!Array.isArray(body)) {
       return sendError(ctx, Object.assign(new Error('Body must be an array of items'), {status: 400, code: 'BadLoadBody'}));
     }
-    const r = await adapter.putAll(body);
+    const r = await adapter.putItems(body);
     sendJson(ctx, 200, {processed: r.processed});
   };
 
@@ -173,7 +173,7 @@ export const createKoaAdapter = (adapter, options = {}) => {
     const {index} = resolveSort(query, sortableIndices);
     const example = exampleFromContext(makeExampleCtx(query, body, ctx));
     const params = await adapter._buildListParams(opts, false, example, index);
-    const r = await adapter.cloneAllByParams(params, item => ({...item, ...overlay}));
+    const r = await adapter.cloneListByParams(params, item => ({...item, ...overlay}));
     sendJson(ctx, 200, {processed: r.processed});
   };
 
@@ -184,7 +184,7 @@ export const createKoaAdapter = (adapter, options = {}) => {
     const {index} = resolveSort(query, sortableIndices);
     const example = exampleFromContext(makeExampleCtx(query, body, ctx));
     const params = await adapter._buildListParams(opts, false, example, index);
-    const r = await adapter.moveAllByParams(params, item => ({...item, ...overlay}));
+    const r = await adapter.moveListByParams(params, item => ({...item, ...overlay}));
     sendJson(ctx, 200, {processed: r.processed});
   };
 

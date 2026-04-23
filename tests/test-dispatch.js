@@ -114,7 +114,12 @@ test('custom policy overrides envelope keys + miss status', async t => {
 });
 
 test('custom keyFromPath receives the raw segment + adapter', async t => {
-  const adapter = makeMockAdapter({keyFields: ['pk', 'sk']});
+  const adapter = makeMockAdapter({
+    keyFields: [
+      {name: 'pk', type: 'string'},
+      {name: 'sk', type: 'string'}
+    ]
+  });
   const seen = [];
   const keyFromPath = (raw, adp) => {
     seen.push({raw, keyFields: adp.keyFields});
@@ -124,7 +129,10 @@ test('custom keyFromPath receives the raw segment + adapter', async t => {
   await withKoaServer(createKoaAdapter(adapter, {keyFromPath}), async base => {
     await fetch(`${base}/tenant-1:sol-3`);
     t.equal(seen[0].raw, 'tenant-1:sol-3', 'raw segment URL-decoded');
-    t.deepEqual(seen[0].keyFields, ['pk', 'sk']);
+    t.deepEqual(seen[0].keyFields, [
+      {name: 'pk', type: 'string'},
+      {name: 'sk', type: 'string'}
+    ]);
     t.deepEqual(adapter.calls[0].key, {pk: 'tenant-1', sk: 'sol-3'});
   });
 });

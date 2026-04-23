@@ -49,7 +49,7 @@ test('typed: KoaAdapterOptions typechecks the full options surface', t => {
   const opts: KoaAdapterOptions<Planet> = {
     policy: {defaultLimit: 25, maxLimit: 200, needTotal: false},
     sortableIndices: {name: 'by-name-index'},
-    keyFromPath: (raw, adp) => ({[adp.keyFields[0]]: raw}),
+    keyFromPath: (raw, adp) => ({[adp.keyFields[0].name]: raw}),
     exampleFromContext: ({query, ctx}) => ({tenant: query.tenant ?? 'default', via: ctx.method}),
     maxBodyBytes: 128 * 1024
   };
