@@ -3,7 +3,7 @@
 [npm-img]: https://img.shields.io/npm/v/dynamodb-toolkit-koa.svg
 [npm-url]: https://npmjs.org/package/dynamodb-toolkit-koa
 
-Koa adapter for [`dynamodb-toolkit`](https://github.com/uhop/dynamodb-toolkit) v3. Mounts the toolkit's standard REST route pack as a Koa middleware — same wire contract as `dynamodb-toolkit/handler` (the bundled `node:http` adapter), translated for Koa's `(ctx, next)` shape.
+Koa adapter for [`dynamodb-toolkit`](https://github.com/uhop/dynamodb-toolkit) v3. Mounts the toolkit's standard REST route pack as a Koa middleware — same wire contract as `dynamodb-toolkit/handler` (the bundled `node:http` adapter), [`dynamodb-toolkit-express`](https://github.com/uhop/dynamodb-toolkit-express), [`dynamodb-toolkit-fetch`](https://github.com/uhop/dynamodb-toolkit-fetch), and [`dynamodb-toolkit-lambda`](https://github.com/uhop/dynamodb-toolkit-lambda), translated for Koa's `(ctx, next)` shape.
 
 Zero runtime dependencies; `koa` and `dynamodb-toolkit` are peer dependencies.
 
