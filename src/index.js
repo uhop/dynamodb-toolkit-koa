@@ -1,3 +1,5 @@
+// @ts-self-types="./index.d.ts"
+
 // Koa adapter for dynamodb-toolkit v3.
 //
 // Translates Koa `(ctx, next)` into the toolkit's framework-agnostic pieces:
@@ -276,7 +278,6 @@ export const createKoaAdapter = (adapter, options = {}) => {
           break;
         }
       }
-      // Route shape matched, but no handler for this method — explicit 405.
       return sendError(ctx, Object.assign(new Error('Method not allowed for this route'), {status: 405, code: 'MethodNotAllowed'}));
     } catch (err) {
       sendError(ctx, err);
