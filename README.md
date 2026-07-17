@@ -3,82 +3,31 @@
 [npm-img]: https://img.shields.io/npm/v/dynamodb-toolkit-koa.svg
 [npm-url]: https://npmjs.org/package/dynamodb-toolkit-koa
 
-Koa adapter for [`dynamodb-toolkit`](https://github.com/uhop/dynamodb-toolkit) v3. Mounts the toolkit's standard REST route pack as a Koa middleware — same wire contract as `dynamodb-toolkit/handler` (the bundled `node:http` adapter), [`dynamodb-toolkit-express`](https://github.com/uhop/dynamodb-toolkit-express), [`dynamodb-toolkit-fetch`](https://github.com/uhop/dynamodb-toolkit-fetch), and [`dynamodb-toolkit-lambda`](https://github.com/uhop/dynamodb-toolkit-lambda), translated for Koa's `(ctx, next)` shape.
+> **Superseded.** The Koa adapter now ships inside [`dynamodb-toolkit`](https://github.com/uhop/dynamodb-toolkit) as the **`dynamodb-toolkit/koa`** subpath export (3.8.0+). This package is a **frozen re-export thunk**: it keeps existing consumers working unchanged and receives no further development. The repository is archived.
 
-Zero runtime dependencies; `koa` and `dynamodb-toolkit` are peer dependencies.
+## Migration
 
-## Install
+Change the import — nothing else:
 
-```sh
-npm install dynamodb-toolkit-koa dynamodb-toolkit koa @aws-sdk/client-dynamodb @aws-sdk/lib-dynamodb
+```diff
+-import {createKoaAdapter} from 'dynamodb-toolkit-koa';
++import {createKoaAdapter} from 'dynamodb-toolkit/koa';
 ```
 
-## Quick start
+Then drop `dynamodb-toolkit-koa` from your `package.json`. The API, options, and wire contract are identical — the code simply lives in the core package now (Koa remains duck-typed at runtime; the core stays zero-dependency).
 
-```js
-import Koa from 'koa';
-import mount from 'koa-mount';
-import {DynamoDBClient} from '@aws-sdk/client-dynamodb';
-import {DynamoDBDocumentClient} from '@aws-sdk/lib-dynamodb';
-import {Adapter} from 'dynamodb-toolkit';
-import {createKoaAdapter} from 'dynamodb-toolkit-koa';
+## What this thunk is
 
-const client = DynamoDBDocumentClient.from(new DynamoDBClient({region: 'us-east-1'}));
+`export * from 'dynamodb-toolkit/koa'` — nothing else. It declares an open-ended peer on `dynamodb-toolkit >= 3.8.0`, so future core releases never require a thunk update.
 
-const adapter = new Adapter({
-  client,
-  table: 'planets',
-  keyFields: ['name']
-});
+Documentation lives in the core wiki: [Framework adapters](https://github.com/uhop/dynamodb-toolkit/wiki/Framework-adapters) (shared surface) and [Koa adapter](https://github.com/uhop/dynamodb-toolkit/wiki/Koa-adapter).
 
-const app = new Koa();
-app.use(mount('/planets', createKoaAdapter(adapter)));
-app.listen(3000);
-```
+## Release notes
 
-`koa-mount` (or any upstream that strips the collection prefix from `ctx.path`) is the idiomatic way to mount the adapter at a sub-path. Unrecognized routes hand back to `next()`, so the adapter composes cleanly with the rest of your Koa stack.
+- 0.4.0 _Frozen re-export thunk over `dynamodb-toolkit/koa`; superseded by the core subpath. No API changes._
+- 0.3.0 _Standalone adapter line (final implementation release); see the core wiki for current docs._
 
-## Options
-
-| Option               | Default                                      | Purpose                                                                                   |
-| -------------------- | -------------------------------------------- | ----------------------------------------------------------------------------------------- |
-| `policy`             | `defaultPolicy`                              | Partial overrides for prefixes, envelope keys, status codes.                              |
-| `sortableIndices`    | `{}`                                         | Map sort-field name → GSI name for `?sort=` / `?sort=-field`.                             |
-| `keyFromPath`        | `(raw, a) => ({[a.keyFields[0].name]: raw})` | Convert `:key` path segment to a key object (composite keys).                             |
-| `exampleFromContext` | `() => ({})`                                 | Derive `prepareListInput` `example` from `{query, body, adapter, framework: 'koa', ctx}`. |
-| `maxBodyBytes`       | `1048576` (1 MiB)                            | Cap for stream-parsed bodies, measured in bytes (ignored when a body-parser ran).         |
-
-Consumers using `koa-bodyparser` (or `@koa/bodyparser`) can rely on their pre-parsed `ctx.request.body`; the adapter uses it when set, falls back to streaming the raw request otherwise.
-
-## Routes
-
-Rooted at the mount point:
-
-| Method | Path               | Adapter method                |
-| ------ | ------------------ | ----------------------------- |
-| GET    | `/`                | `getList` (envelope + links)  |
-| POST   | `/`                | `post`                        |
-| DELETE | `/`                | `deleteListByParams`          |
-| GET    | `/-by-names`       | `getByKeys`                   |
-| DELETE | `/-by-names`       | `deleteByKeys`                |
-| PUT    | `/-load`           | `putItems`                    |
-| PUT    | `/-clone`          | `cloneListByParams` (overlay) |
-| PUT    | `/-move`           | `moveListByParams` (overlay)  |
-| PUT    | `/-clone-by-names` | `cloneByKeys` (overlay)       |
-| PUT    | `/-move-by-names`  | `moveByKeys` (overlay)        |
-| GET    | `/:key`            | `getByKey`                    |
-| PUT    | `/:key`            | `put` (URL key merged in)     |
-| PATCH  | `/:key`            | `patch` (meta keys → options) |
-| DELETE | `/:key`            | `delete`                      |
-| PUT    | `/:key/-clone`     | `clone`                       |
-| PUT    | `/:key/-move`      | `move`                        |
-
-Wire contract — query syntax, envelope shape, meta-key prefixes, status codes — matches the bundled [HTTP handler](https://github.com/uhop/dynamodb-toolkit/wiki/HTTP-handler). Everything is configurable through `options.policy`.
-
-## Compatibility
-
-- **Koa 2** and **Koa 3** (peer range `^2.15.0 || ^3.0.0`).
-- **Node 20+**, **Bun**, **Deno** — the adapter's tests run cleanly under all three.
+Full details in the wiki's [Release notes](https://github.com/uhop/dynamodb-toolkit-koa/wiki/Release-notes).
 
 ## License
 
